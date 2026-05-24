@@ -25,6 +25,7 @@ public:
   // Настройка параметров
   void setPulseRange(unsigned long minDur, unsigned long maxDur);
   void setTimeout(unsigned long seriesTimeout);
+  void setDebounce(unsigned long ms);
 
 private:
   uint8_t _pin;
@@ -36,10 +37,16 @@ private:
   enum State { IDLE, IN_SERIES } _state;
 
   // Переменные для измерения импульсов
-  int _prevLevel;
   bool _pulseActive;
   unsigned long _pulseStart;
   unsigned long _lastPulseEnd;
+
+  // Антидребезг
+  unsigned long _debounceTime;
+  int _lastRawReading;
+  unsigned long _lastReadChange;
+  int _stableLevel;
+  bool _stableLevelValid;
 
   // Счётчики серий
   int _currentSeriesCount;
