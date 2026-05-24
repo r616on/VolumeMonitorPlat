@@ -2,62 +2,77 @@
 
 PresetDetector::PresetDetector(uint8_t pin)
   : _pin(pin),
-    _minPulseDur(100),    // минимум 100 мс (для импульсов ~150 мс)
-    _maxPulseDur(200),    // максимум 200 мс
-    _seriesTimeout(400),  // таймаут между сериями
+    _minPulseDur(100),
+    _maxPulseDur(200),
+    _seriesTimeout(400),
     _state(IDLE),
-    _prevLevel(HIGH),
     _pulseActive(false),
     _pulseStart(0),
     _lastPulseEnd(0),
+    _debounceTime(5),
+    _lastRawReading(HIGH),
+    _lastReadChange(0),
+    _stableLevel(HIGH),
+    _stableLevelValid(false),
     _currentSeriesCount(0),
     _confirmedPreset(0) {
   pinMode(_pin, INPUT_PULLUP);
-  _prevLevel = digitalRead(_pin);
 }
 
 void PresetDetector::update() {
   unsigned long now = millis();
-  int curLevel = digitalRead(_pin);
+  int curRaw = digitalRead(_pin);
 
-  // Обнаружение изменения уровня
-  if (curLevel != _prevLevel) {
-    if (curLevel == LOW) {  // начало импульса (HIGH -> LOW)
-      _pulseActive = true;
-      _pulseStart = now;
-    } else {  // конец импульса (LOW -> HIGH)
-      if (_pulseActive) {
-        unsigned long duration = now - _pulseStart;
-
-        // ВЫВОД ДЛИТЕЛЬНОСТИ ИМПУЛЬСА
-        // Serial.print("Pulse END. Duration: ");
-        // Serial.print(duration);
-        // Serial.print("ms | ");
-
-        if (duration >= _minPulseDur && duration <= _maxPulseDur) {
-          // Валидный импульс
-          if (_state == IDLE) {
-            _state = IN_SERIES;
-            _currentSeriesCount = 1;
-          } else {
-            _currentSeriesCount++;
-          }
-          _lastPulseEnd = now;
-        } else {
-          // Невалидный импульс – сброс серии
-          _state = IDLE;
-          _currentSeriesCount = 0;
-        }
-        _pulseActive = false;
-      }
-    }
-    _prevLevel = curLevel;
+  if (curRaw != _lastRawReading) {
+    _lastRawReading = curRaw;
+    _lastReadChange = now;
   }
 
-  // Проверка таймаута окончания серии
+  if (now - _lastReadChange < _debounceTime) {
+    return;
+  }
+
+  int stable = _lastRawReading;
+
+  if (!_stableLevelValid) {
+    _stableLevel = stable;
+    _stableLevelValid = true;
+    return;
+  }
+
+  if (stable == _stableLevel) {
+    return;
+  }
+
+  int prevLevel = _stableLevel;
+  int curLevel = stable;
+  _stableLevel = stable;
+
+  if (curLevel == LOW) {
+    _pulseActive = true;
+    _pulseStart = now;
+  } else {
+    if (_pulseActive) {
+      unsigned long duration = now - _pulseStart;
+
+      if (duration >= _minPulseDur && duration <= _maxPulseDur) {
+        if (_state == IDLE) {
+          _state = IN_SERIES;
+          _currentSeriesCount = 1;
+        } else {
+          _currentSeriesCount++;
+        }
+        _lastPulseEnd = now;
+      } else {
+        _state = IDLE;
+        _currentSeriesCount = 0;
+      }
+      _pulseActive = false;
+    }
+  }
+
   if (_state == IN_SERIES && !_pulseActive) {
     unsigned long timeSinceLastPulse = now - _lastPulseEnd;
-    
     if (timeSinceLastPulse > _seriesTimeout) {
       _endSeries();
     }
@@ -84,7 +99,7 @@ void PresetDetector::reset() {
   _currentSeriesCount = 0;
   _confirmedPreset = 0;
   _pulseActive = false;
-  _prevLevel = digitalRead(_pin);
+  _stableLevelValid = false;
 }
 
 void PresetDetector::setPulseRange(unsigned long minDur, unsigned long maxDur) {
@@ -94,4 +109,8 @@ void PresetDetector::setPulseRange(unsigned long minDur, unsigned long maxDur) {
 
 void PresetDetector::setTimeout(unsigned long seriesTimeout) {
   _seriesTimeout = seriesTimeout;
+}
+
+void PresetDetector::setDebounce(unsigned long ms) {
+  _debounceTime = ms;
 }
