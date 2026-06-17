@@ -1,4 +1,4 @@
-#include "PresetDetector.h"
+﻿#include "PresetDetector.h"
 
 PresetDetector::PresetDetector(uint8_t pin)
   : _pin(pin),
@@ -44,7 +44,6 @@ void PresetDetector::update() {
     return;
   }
 
-  int prevLevel = _stableLevel;
   int curLevel = stable;
   _stableLevel = stable;
 
