@@ -235,6 +235,7 @@ void setup() {
   delay(SETUP_DELAY_MS);
 
   modeManager.begin();
+  buttonController.begin();
   if (modeManager.getMode() == ModeManager::START_MIN_VALUE) {
     setVolume(1);
   }
@@ -250,11 +251,7 @@ void loop() {
 
   presetDetector.update();
   int currentPreset = presetDetector.getConfirmedPreset();
-  if (currentPreset != lastConfirmedPreset && currentPreset != 0) {
-    StaticJsonDocument<128> eventDoc;
-    eventDoc["command"] = "preset_changed";
-    eventDoc["value"] = currentPreset;
-    sendResponse(eventDoc);
+  if (currentPreset != lastConfirmedPreset) {
     lastConfirmedPreset = currentPreset;
   }
 

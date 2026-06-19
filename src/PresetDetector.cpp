@@ -15,6 +15,7 @@ PresetDetector::PresetDetector(uint8_t pin)
     _stableLevel(HIGH),
     _stableLevelValid(false),
     _currentSeriesCount(0),
+    _previousSeriesCount(0),
     _confirmedPreset(0) {
   pinMode(_pin, INPUT_PULLUP);
 }
@@ -79,12 +80,17 @@ void PresetDetector::update() {
 }
 
 void PresetDetector::_endSeries() {
-  // Подтверждаем пресет сразу (если количество импульсов в разумных пределах)
   if (_currentSeriesCount >= 1 && _currentSeriesCount <= 10) {
-    _confirmedPreset = _currentSeriesCount;
+    if (_currentSeriesCount == _previousSeriesCount) {
+      _confirmedPreset = _currentSeriesCount;
+      _previousSeriesCount = 0;
+    } else {
+      _previousSeriesCount = _currentSeriesCount;
+    }
+  } else {
+    _previousSeriesCount = 0;
   }
 
-  // Сбрасываем состояние для следующей серии
   _state = IDLE;
   _currentSeriesCount = 0;
 }
@@ -96,6 +102,7 @@ int PresetDetector::getConfirmedPreset() const {
 void PresetDetector::reset() {
   _state = IDLE;
   _currentSeriesCount = 0;
+  _previousSeriesCount = 0;
   _confirmedPreset = 0;
   _pulseActive = false;
   _stableLevelValid = false;
