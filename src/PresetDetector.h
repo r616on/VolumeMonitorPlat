@@ -50,7 +50,8 @@ private:
 
   // Счётчики серий
   int _currentSeriesCount;
-  int _confirmedPreset;  // теперь подтверждается сразу
+  int _previousSeriesCount;
+  int _confirmedPreset;
 
   // Вспомогательный метод для завершения серии
   void _endSeries();
