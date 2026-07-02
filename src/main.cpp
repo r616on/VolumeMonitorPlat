@@ -4,6 +4,7 @@
 #include "PotentiometerController.h"
 #include "ButtonController.h"
 #include "ModeManager.h"
+#include "RemController.h"
 
 
 // --- Constants ---
@@ -22,6 +23,7 @@ PresetDetector presetDetector(A3);
 int lastConfirmedPreset = 0;
 ButtonController buttonController;
 ModeManager modeManager;
+RemController remController;
 
 
 void sendResponse(const JsonDocument& doc) {
@@ -147,6 +149,16 @@ void parseCommand(const String& jsonString) {
     sendResponse(responseDoc);
   }
 
+  else if (strcmp(command, "set_is_enable_rem") == 0) {
+    bool value = doc["value"].as<bool>();
+    remController.enable(value);
+    StaticJsonDocument<128> responseDoc;
+    responseDoc["status"] = "success";
+    responseDoc["command"] = "set_is_enable_rem";
+    responseDoc["is_enable_rem"] = remController.isEnabled();
+    sendResponse(responseDoc);
+  }
+
   else if (strcmp(command, "get_preset") == 0) {
     StaticJsonDocument<128> eventDoc;
     eventDoc["command"] = "preset_changed";
@@ -236,6 +248,7 @@ void setup() {
 
   modeManager.begin();
   buttonController.begin();
+  remController.begin();
   if (modeManager.getMode() == ModeManager::START_MIN_VALUE) {
     setVolume(1);
   }
