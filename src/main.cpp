@@ -1,35 +1,40 @@
-#include <Wire.h>
+﻿#include <Wire.h>
 #include <ArduinoJson.h>
 #include "PresetDetector.h"
 #include "PotentiometerController.h"
+#include "ButtonController.h"
+#include "ModeManager.h"
+#include "RemController.h"
 
 
-#define BUTTON_PIN 9  // пин оптопары
+// --- Constants ---
+#define BUTTON_PIN 9
+
+static constexpr unsigned long BUTTON_PRESS_DURATION_MS = 500;
+static constexpr unsigned long SETUP_DELAY_MS = 100;
+
+static constexpr char MSG_START = '[';
+static constexpr char MSG_END   = ']';
+
 unsigned long pressStartTime = 0;
 bool buttonActive = false;
 
-// Создаём объект детектора для пина A3
 PresetDetector presetDetector(A3);
-
-// Для отслеживания изменений подтверждённого пресета
-int lastConfirmedPreset = 1;
-
-// --- Символы обрамления сообщений ---
-#define MSG_START '['
-#define MSG_END ']'
+int lastConfirmedPreset = 0;
+ButtonController buttonController;
+ModeManager modeManager;
+RemController remController;
 
 
-// --- Функция отправки JSON ответа с обрамлением и переводом строки ---
-void sendResponse(JsonDocument& doc) {
+void sendResponse(const JsonDocument& doc) {
   Serial.print(MSG_START);
   serializeJson(doc, Serial);
   Serial.print(MSG_END);
-  Serial.println();  // Добавляет \n, завершая сообщение
+  Serial.println();
 }
 
 
-// --- Парсинг JSON команды (строка без обрамления) ---
-void parseCommand(String jsonString) {
+void parseCommand(const String& jsonString) {
   StaticJsonDocument<256> doc;
   DeserializationError error = deserializeJson(doc, jsonString);
 
@@ -42,13 +47,19 @@ void parseCommand(String jsonString) {
     return;
   }
 
-  const char* command = doc["command"];
+  const char* command = doc["command"] | "";
+  if (command[0] == '\0') {
+    StaticJsonDocument<128> errorDoc;
+    errorDoc["status"] = "error";
+    errorDoc["message"] = "Missing or empty 'command' field";
+    sendResponse(errorDoc);
+    return;
+  }
 
-  // Обработка команд
   if (strcmp(command, "set_volume") == 0) {
     int value = doc["value"] | -1;
     if (value >= 0 && value <= POT_MAX_VALUE) {
-      bool success = setVolume(value);  // вызов функции из модуля
+      bool success = setVolume(value);
       StaticJsonDocument<128> responseDoc;
       if (success) {
         responseDoc["status"] = "success";
@@ -66,6 +77,42 @@ void parseCommand(String jsonString) {
       errorDoc["received"] = value;
       sendResponse(errorDoc);
     }
+  }
+
+  else if (strcmp(command, "set_volume_memo") == 0) {
+    int value = doc["value"] | -1;
+    if (value >= 0 && value <= POT_MAX_VALUE) {
+      bool success = setVolumeMemory(value);
+      StaticJsonDocument<128> responseDoc;
+      if (success) {
+        responseDoc["status"] = "success";
+        responseDoc["command"] = "set_volume_memo";
+        responseDoc["volume"] = value;
+      } else {
+        responseDoc["status"] = "error";
+        responseDoc["message"] = "I2C communication failed (volume memo)";
+      }
+      sendResponse(responseDoc);
+    } else {
+      StaticJsonDocument<128> errorDoc;
+      errorDoc["status"] = "error";
+      errorDoc["message"] = "value must be 0-255";
+      errorDoc["received"] = value;
+      sendResponse(errorDoc);
+    }
+  }
+
+
+  else if (strcmp(command, "set_mode") == 0) {
+    const char* modeValue = doc["value"] | "standard";
+    ModeManager::Mode newMode = ModeManager::modeFromName(modeValue);
+    modeManager.setMode(newMode);
+
+    StaticJsonDocument<128> responseDoc;
+    responseDoc["status"] = "success";
+    responseDoc["command"] = "set_mode";
+    responseDoc["mode"] = modeManager.getModeName();
+    sendResponse(responseDoc);
   }
 
   else if (strcmp(command, "set_bass_level") == 0) {
@@ -92,12 +139,9 @@ void parseCommand(String jsonString) {
   }
 
   else if (strcmp(command, "change_preset") == 0) {
-    // Запуск имитации нажатия
     digitalWrite(BUTTON_PIN, HIGH);
     pressStartTime = millis();
     buttonActive = true;
-
-    // Формирование ответа
     StaticJsonDocument<128> responseDoc;
     responseDoc["status"] = "success";
     responseDoc["command"] = "change_preset";
@@ -105,12 +149,65 @@ void parseCommand(String jsonString) {
     sendResponse(responseDoc);
   }
 
+  else if (strcmp(command, "set_is_enable_rem") == 0) {
+    bool value = doc["value"].as<bool>();
+    remController.enable(value);
+    StaticJsonDocument<128> responseDoc;
+    responseDoc["status"] = "success";
+    responseDoc["command"] = "set_is_enable_rem";
+    responseDoc["is_enable_rem"] = remController.isEnabled();
+    sendResponse(responseDoc);
+  }
+
   else if (strcmp(command, "get_preset") == 0) {
-    // Формирование ответа
     StaticJsonDocument<128> eventDoc;
     eventDoc["command"] = "preset_changed";
     eventDoc["value"] = lastConfirmedPreset;
     sendResponse(eventDoc);
+  }
+
+  else if (strcmp(command, "get_mode") == 0) {
+    StaticJsonDocument<128> responseDoc;
+    responseDoc["status"] = "success";
+    responseDoc["command"] = "get_mode";
+    responseDoc["mode"] = modeManager.getModeName();
+    sendResponse(responseDoc);
+  }
+
+  else if (strcmp(command, "button_down") == 0) {
+    int value = doc["value"] | -1;
+    if (value >= 1 && value <= 7) {
+      buttonController.press(value);
+      StaticJsonDocument<128> responseDoc;
+      responseDoc["status"] = "success";
+      responseDoc["command"] = "button_down";
+      responseDoc["value"] = value;
+      sendResponse(responseDoc);
+    } else {
+      StaticJsonDocument<128> errorDoc;
+      errorDoc["status"] = "error";
+      errorDoc["message"] = "button value must be 1-7";
+      errorDoc["received"] = value;
+      sendResponse(errorDoc);
+    }
+  }
+
+  else if (strcmp(command, "button_up") == 0) {
+    int value = doc["value"] | -1;
+    if (value >= 1 && value <= 7) {
+      buttonController.release(value);
+      StaticJsonDocument<128> responseDoc;
+      responseDoc["status"] = "success";
+      responseDoc["command"] = "button_up";
+      responseDoc["value"] = value;
+      sendResponse(responseDoc);
+    } else {
+      StaticJsonDocument<128> errorDoc;
+      errorDoc["status"] = "error";
+      errorDoc["message"] = "button value must be 1-7";
+      errorDoc["received"] = value;
+      sendResponse(errorDoc);
+    }
   }
 
   else if (strcmp(command, "ping") == 0) {
@@ -120,6 +217,7 @@ void parseCommand(String jsonString) {
     responseDoc["device"] = "Volume_Adapter";
     responseDoc["volume_range"] = "0-255";
     responseDoc["bass_range"] = "0-255";
+    responseDoc["mode"] = modeManager.getModeName();
     sendResponse(responseDoc);
   } else {
     StaticJsonDocument<128> errorDoc;
@@ -130,63 +228,51 @@ void parseCommand(String jsonString) {
   }
 }
 
-// --- Setup ---
 void setup() {
   Serial.begin(115200);
   Wire.begin();
   pinMode(BUTTON_PIN, OUTPUT);
   digitalWrite(BUTTON_PIN, LOW);
 
+  delay(SETUP_DELAY_MS);
 
-  delay(100);
-
-  // Приветственное сообщение
   StaticJsonDocument<128> welcomeDoc;
   welcomeDoc["status"] = "ready";
   welcomeDoc["device"] = "Volume Adapter";
   welcomeDoc["protocol"] = "JUDI";
+  welcomeDoc["mode"] = modeManager.getModeName();
   welcomeDoc["volume_range"] = "0-255";
   welcomeDoc["bass_range"] = "0-255";
-
   sendResponse(welcomeDoc);
-  delay(100);
+  delay(SETUP_DELAY_MS);
 
-  // Устанавливаем начальные значения (например, 1 для избежания нуля, если нужно)
-  setVolume(1);
-  delay(10);
+  modeManager.begin();
+  buttonController.begin();
+  remController.begin();
+  if (modeManager.getMode() == ModeManager::START_MIN_VALUE) {
+    setVolume(1);
+  }
 }
 
-// --- Loop с чтением строк до '\n' ---
 void loop() {
   unsigned long now = millis();
 
-  // 1. Имитация нажатия на D9
-  if (buttonActive && (now - pressStartTime >= 500)) {
+  if (buttonActive && (now - pressStartTime >= BUTTON_PRESS_DURATION_MS)) {
     digitalWrite(BUTTON_PIN, LOW);
     buttonActive = false;
   }
 
-
-  // 2. Обновление детектора пресета
   presetDetector.update();
-  // 3. Проверка, изменился ли подтверждённый пресет
   int currentPreset = presetDetector.getConfirmedPreset();
-  if (currentPreset != lastConfirmedPreset && currentPreset != 0) {
-    StaticJsonDocument<128> eventDoc;
-    eventDoc["command"] = "preset_changed";
-    eventDoc["value"] = currentPreset;
-    sendResponse(eventDoc);
-
+  if (currentPreset != lastConfirmedPreset) {
     lastConfirmedPreset = currentPreset;
   }
 
   if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');  // читаем до \n, сам \n не включается
-    input.trim();                                 // удаляем пробельные символы по краям (включая \r, если есть)
-
+    String input = Serial.readStringUntil('\n');
+    input.trim();
     if (input.length() == 0) return;
 
-    // Проверяем, что строка начинается с '[' и заканчивается ']'
     if (input.startsWith(String(MSG_START)) && input.endsWith(String(MSG_END))) {
       String content = input.substring(1, input.length() - 1);
       parseCommand(content);
