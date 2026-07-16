@@ -29,6 +29,14 @@ void PresetDetector::update() {
     _lastReadChange = now;
   }
 
+  // Таймаут серии — должен проверяться на каждом вызове, а не только при детектировании фронта
+  if (_state == IN_SERIES && !_pulseActive) {
+    unsigned long timeSinceLastPulse = now - _lastPulseEnd;
+    if (timeSinceLastPulse > _seriesTimeout) {
+      _endSeries();
+    }
+  }
+
   if (now - _lastReadChange < _debounceTime) {
     return;
   }
@@ -68,13 +76,6 @@ void PresetDetector::update() {
         _currentSeriesCount = 0;
       }
       _pulseActive = false;
-    }
-  }
-
-  if (_state == IN_SERIES && !_pulseActive) {
-    unsigned long timeSinceLastPulse = now - _lastPulseEnd;
-    if (timeSinceLastPulse > _seriesTimeout) {
-      _endSeries();
     }
   }
 }

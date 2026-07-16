@@ -10,6 +10,7 @@
 // --- Constants ---
 #define BUTTON_PIN 9
 
+static constexpr char FIRMWARE_VERSION[] = "1.0.1";
 static constexpr unsigned long BUTTON_PRESS_DURATION_MS = 500;
 static constexpr unsigned long SETUP_DELAY_MS = 100;
 
@@ -211,12 +212,16 @@ void parseCommand(const String& jsonString) {
   }
 
   else if (strcmp(command, "ping") == 0) {
-    StaticJsonDocument<128> responseDoc;
+    StaticJsonDocument<192> responseDoc;
     responseDoc["status"] = "success";
     responseDoc["command"] = "pong";
     responseDoc["device"] = "Volume_Adapter";
+    responseDoc["volume"] = currentVolume;
     responseDoc["volume_range"] = "0-255";
+    responseDoc["bass"] = currentBass;
     responseDoc["bass_range"] = "0-255";
+    responseDoc["preset"] = lastConfirmedPreset;
+    responseDoc["is_enable_rem"] = remController.isEnabled();
     responseDoc["mode"] = modeManager.getModeName();
     sendResponse(responseDoc);
   } else {
@@ -236,13 +241,15 @@ void setup() {
 
   delay(SETUP_DELAY_MS);
 
-  StaticJsonDocument<128> welcomeDoc;
+  StaticJsonDocument<192> welcomeDoc;
   welcomeDoc["status"] = "ready";
   welcomeDoc["device"] = "Volume Adapter";
   welcomeDoc["protocol"] = "JUDI";
   welcomeDoc["mode"] = modeManager.getModeName();
   welcomeDoc["volume_range"] = "0-255";
   welcomeDoc["bass_range"] = "0-255";
+  welcomeDoc["version"] = FIRMWARE_VERSION;
+
   sendResponse(welcomeDoc);
   delay(SETUP_DELAY_MS);
 
