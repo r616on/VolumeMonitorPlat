@@ -66,7 +66,7 @@ pio run --target clean
 │   └── RemController.cpp
 ├── include/                    # Заголовочные файлы библиотек
 ├── lib/                        # Локальные библиотеки
-└── test/                       # Тесты
+├── test/                       # Тесты
 ```
 
 ---
